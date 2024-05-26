@@ -22,6 +22,7 @@ target_sources(
 	${PROJECT_NAME}
 	PRIVATE
 		src/main.c
+		src/util.c
 )
 
 target_sources(
@@ -31,6 +32,7 @@ target_sources(
 	TYPE HEADERS
 	BASE_DIRS ${CMAKE_SOURCE_DIR}/include
 	FILES
+		include/util.h
 )
 
 target_compile_definitions(
