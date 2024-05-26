@@ -1,0 +1,27 @@
+import "fmt"
+
+pub fn main() -> void {
+	// This is a comment
+
+	// There are const and mutable variables, their types are specified after
+	// the ':', or can be inferred with ':='; inferred types must be initialized.
+	// All builtin types have default zero-initialization if no value is assigned.
+	const foo: i32 = 0;
+	const bar := 0.0;
+	mut oxy: u32; // Default initializes to 0
+
+	if (foo == 0) {
+		fmt.println("HI!"); // Print texts + '\n'
+	}
+
+	// The for loop is write like C:
+	// 	for (binding; condition; after) { }
+	// although, you can omit the 'binding', and 'after' fields:
+	// 	for (condition) { }
+	// The "while" doesn't exists, you can use the "for" instead.
+	for (mut i = 0; i <= 10; i += 1) { // There's no prefix or postfix inc/decrement
+		// Formatting must be done with {}; the brackets can have an optional
+		// type specifier
+		fmt.println("{}", i * 10);
+	}
+}
