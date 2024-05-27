@@ -1,6 +1,10 @@
 #ifndef _AX_UTIL_H_
 #define _AX_UTIL_H_
 
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 enum LogLevel {
 	LOG_TRACE,
 	LOG_DEBUG,
@@ -26,5 +30,10 @@ enum LogLevel {
  * @param fmt   Formatted string to be displayed.
  */
 void log_message(int level, const char *file, int line, const char *fmt, ...);
+
+void *xcalloc(size_t count, size_t size);
+void *xrealloc(void *ptr, size_t size);
+
+FILE *xfopen(const char *filename, const char *modes);
 
 #endif

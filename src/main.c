@@ -1,3 +1,4 @@
+#include "lex.h"
 #include "util.h"
 
 #include <stdio.h>
@@ -7,15 +8,32 @@
 int main(int argc, char *argv[]) {
 	if (argc != 2) {
 		log_fatal("Usage: %s <file.ax>", argv[0]);
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	// Enforce extension
 	const char *ext = strrchr(argv[1], '.');
-	if (ext == NULL || (strncmp(ext, ".ax", 3) != 0 && strncmp(ext, ".AX", 3) != 0)) {
-		log_fatal("Unknown extension found! Valid extensions are: .ax .AX");
-		exit(EXIT_FAILURE);
+	if (ext == NULL || (strcmp(ext, ".ax") != 0 && strcmp(ext, ".AX") != 0)) {
+		log_fatal(
+			"Unknown extension found in file: %s! Valid extensions are: .ax .AX", argv[1]
+		);
+		return EXIT_FAILURE;
 	}
 
+	FILE *file = xfopen(argv[1], "rb");
+
+	LexState lex = { 0 };
+	lex_init(&lex, file);
+
+	Token tok = { 0 };
+	while (lex_scan(&lex, &tok) != TK_EOF) {
+		if (tok.kind == TK_NUMBER) {
+			log_debug("%d:%d > %d", tok.loc.lineno, tok.loc.colno, tok.uval);
+		}
+
+		tok.kind = TK_NONE;
+	}
+
+	lex_close(&lex);
 	return EXIT_SUCCESS;
 }

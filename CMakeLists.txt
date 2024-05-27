@@ -21,6 +21,7 @@ target_compile_features(
 target_sources(
 	${PROJECT_NAME}
 	PRIVATE
+		src/lex.c
 		src/main.c
 		src/util.c
 )
@@ -32,6 +33,7 @@ target_sources(
 	TYPE HEADERS
 	BASE_DIRS ${CMAKE_SOURCE_DIR}/include
 	FILES
+		include/lex.h
 		include/util.h
 )
 

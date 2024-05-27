@@ -1,6 +1,6 @@
 import "fmt"
 
-pub fn main() -> void {
+pub func main() -> void {
 	// This is a comment
 
 	// There are const and mutable variables, their types are specified after
