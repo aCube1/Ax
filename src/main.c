@@ -28,7 +28,9 @@ int main(int argc, char *argv[]) {
 	Token tok = { 0 };
 	while (lex_scan(&lex, &tok) != TK_EOF) {
 		if (tok.kind == TK_NUMBER) {
-			log_debug("%d:%d > %d", tok.loc.lineno, tok.loc.colno, tok.uval);
+			log_debug(
+				"%d:%d > %d | %.2f", tok.loc.lineno, tok.loc.colno, tok.uval, tok.fval
+			);
 		}
 
 		tok.kind = TK_NONE;

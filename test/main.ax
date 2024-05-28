@@ -6,9 +6,9 @@ pub func main() -> void {
 	// There are const and mutable variables, their types are specified after
 	// the ':', or can be inferred with ':='; inferred types must be initialized.
 	// All builtin types have default zero-initialization if no value is assigned.
-	const foo: i32 = 0;
-	const bar := 0.0;
-	mut oxy: u32; // Default initializes to 0
+	const foo: i32 = 20;
+	const bar := 1.0e+1; // Type: f64; Scientific notation can be used
+	mut oxy: u32; // Default initializes to zero
 
 	if (foo == 0) {
 		fmt.println("HI!"); // Print texts + '\n'

@@ -1,7 +1,8 @@
 #ifndef _AX_LEX_H_
 #define _AX_LEX_H_
 
-#include <stdint.h>
+#include "types.h"
+
 #include <stdio.h>
 
 typedef enum TokenKind {
@@ -71,9 +72,14 @@ typedef struct Token {
 	// Data
 	union {
 		char *ident; // Identifier name
-		char *str;
-		uint64_t uval;
-		int64_t ival;
+		f64 fval;
+		u64 uval;
+		i64 ival;
+
+		struct {
+			usize len;
+			char *ptr;
+		} str;
 	};
 } Token;
 
@@ -82,8 +88,8 @@ typedef struct LexState {
 	Location loc;
 
 	char stack[2];
-	size_t buflen;
-	size_t bufsize;
+	usize buflen;
+	usize bufsize;
 	char *buf;
 } LexState;
 

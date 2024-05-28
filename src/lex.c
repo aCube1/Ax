@@ -1,3 +1,6 @@
+// Code stolen from/inspired by:
+// https://git.sr.ht/~sircmpwn/harec/tree/master/item/src/lex.c
+
 #include "lex.h"
 
 #include "util.h"
@@ -15,7 +18,7 @@ static _Noreturn void push_error(Location loc, const char *fmt, ...);
 
 static TokenKind lex_number(LexState *lex, Token *out);
 
-static void buffer_insert(LexState *lex, const char *s, size_t len);
+static void buffer_insert(LexState *lex, const char *s, usize len);
 static void buffer_clear(LexState *lex);
 
 static void stack_push(LexState *lex, char c, bool frombuf);
@@ -68,52 +71,150 @@ static _Noreturn void push_error(Location loc, const char *fmt, ...) {
 }
 
 static TokenKind lex_number(LexState *lex, Token *out) {
-	// TODO: Improve number lexing, and storage detection
+	enum Base {
+		B_BIN = 0x01,                  // Binary
+		B_OCT = 0x02,                  // Octal
+		B_HEX = 0x04,                  // Hexadecimal
+		B_DEC = B_BIN | B_OCT | B_HEX, // Decimal
+		B_MASK = B_DEC,
+	};
 
-	enum Base { BIN, OCT, HEX, DEC };
+	enum Flag {
+		F_SYM = 0x08, // Is Symbol
+		F_FLT = 0x10, // Is Float
+		F_EXP = 0x20, // Is Exponent
+		F_SEP = 0x40, // Is Separator
+	};
 
 	static const char numbers[][24] = {
-		[BIN] = "01",
-		[OCT] = "01234567",
-		[HEX] = "0123456789abcdefABCDEF",
-		[DEC] = "0123456789",
+		[B_BIN] = "01",
+		[B_OCT] = "01234567",
+		[B_HEX] = "0123456789abcdefABCDEF",
+		[B_DEC] = "0123456789",
+	};
+
+	// NOTE: I think could be a better way to do this, but...
+	// I stole this code from the hare-c compiler
+	static const char valid_states[0x80][7] = {
+		['.'] = { B_DEC, B_HEX, 0 },
+		['e'] = { B_DEC, B_DEC | F_FLT, 0 },
+		['E'] = { B_DEC, B_DEC | F_FLT, 0 },
+		['p'] = { B_HEX, B_HEX | F_FLT, 0 },
+		['P'] = { B_HEX, B_HEX | F_FLT, 0 },
+		['+'] = { B_DEC | F_EXP | F_SYM, B_DEC | F_FLT | F_EXP | F_SYM, 0 },
+		['-'] = { B_DEC | F_EXP | F_SYM, B_DEC | F_FLT | F_EXP | F_SYM, 0 },
+		['_'] = { B_BIN, B_OCT, B_HEX, B_DEC, B_DEC | F_FLT, B_HEX | F_FLT, 0 },
 	};
 
 	char c = nextchr(lex, &out->loc, true);
 	assert(c != CEOF && isdigit(c));
 
-	enum Base state = DEC;
-	int base = 10;
+	enum Base state = B_DEC;
+	u8 base = 10;
 
 	if (c == '0') {
 		c = nextchr(lex, NULL, true);
 
 		if (isdigit(c) || c == '_') {
-			push_error(out->loc, "Leading zero in number");
-		} else if (c == 'b') { // Binary literal
-			state = BIN;
+			push_error(out->loc, "Leading zero in decimal literal");
+		} else if (c == 'b') {
+			state = B_BIN | F_SYM;
 			base = 2;
-		} else if (c == 'o') { // Octal literal
-			state = OCT;
+		} else if (c == 'o') {
+			state = B_OCT | F_SYM;
 			base = 8;
-		} else if (c == 'x') { // Hexadecimal literal
-			state = HEX;
+		} else if (c == 'x') {
+			state = B_HEX | F_SYM;
 			base = 16;
 		}
 	}
 
-	if (state != DEC) {
+	if (state != B_DEC) { // Get the next character if base was specified
 		c = nextchr(lex, NULL, true);
 	}
 
-	while (strchr(numbers[state], c)) {
+	usize exp_idx = 0; // Index in buffer where the exponent start
+	while (c != CEOF) {
+		// Check if it a valid number in current base
+		if (strchr(numbers[state & B_MASK], c) != NULL) {
+			state &= ~(F_SYM | F_SEP);
+			c = nextchr(lex, NULL, true);
+			continue;
+		}
+
+		if ((state & F_SEP) > 0) {
+			// The current state is a separator, but didn't found a digit after it
+			push_error(out->loc, "Unexpected separator");
+		}
+
+		if (!strchr(valid_states[(u8)c], state)) {
+			break;
+		}
+
+		switch (c) {
+		case '_':
+			state |= F_SEP;
+
+			// Consume separator
+			lex->buflen -= 1;
+			lex->buf[lex->buflen] = '\0';
+			break;
+		case '.':
+			state |= F_FLT;
+			break;
+		case '-':
+		case 'p':
+		case 'P':
+			state |= F_FLT;
+			// FALLTHROUGH
+		case '+':
+		case 'e':
+		case 'E':
+			state |= B_DEC | F_EXP;
+			exp_idx = lex->buflen;
+			break;
+		default:
+			break;
+		}
+
+		state |= F_SYM;
 		c = nextchr(lex, NULL, true);
 	}
 
+	if (c != CEOF) {
+		stack_push(lex, c, true);
+	}
 	out->kind = TK_NUMBER;
 
+	// log_trace("%s", lex->buf);
+
 	errno = 0;
-	out->uval = strtoumax(lex->buf + (base == 10 ? 0 : 2), NULL, base);
+	if ((state & F_FLT) > 0) {
+		// Convert buffer to double
+		out->fval = strtod(lex->buf, NULL);
+	} else {
+		u64 exp = 0;
+		if (exp_idx != 0) {
+			exp = strtoumax(lex->buf + exp_idx, NULL, 10);
+		}
+
+		out->uval = strtoumax(lex->buf + (base == 10 ? 0 : 2), NULL, base);
+
+		if (out->uval != 0) {
+			// Compute exponent if the value is not 0
+			for (u64 i = 0; i < exp; i += 1) {
+				u64 prev = out->uval;
+				out->uval *= 10;
+
+				// Verify for overflow
+				if (out->uval / 10 != prev) {
+					errno = ERANGE;
+					out->uval = INT64_MAX;
+				}
+			}
+		}
+	}
+
 	if (errno == ERANGE) {
 		push_error(out->loc, "Integer constant overflow");
 	}
@@ -122,7 +223,7 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 	return TK_NUMBER;
 }
 
-static void buffer_insert(LexState *lex, const char *s, size_t len) {
+static void buffer_insert(LexState *lex, const char *s, usize len) {
 	if (lex->buflen + len > lex->bufsize) {
 		lex->bufsize *= 2;
 		lex->buf = xrealloc(lex->buf, lex->bufsize);
@@ -170,15 +271,18 @@ static char nextchr(LexState *lex, Location *loc, bool buffer) {
 		lex->stack[1] = CEOF;
 	} else {
 		c = (char)fgetc(lex->file);
+		update_line(&lex->loc, c);
 
 		if (feof(lex->file)) {
 			c = CEOF;
 		}
 	}
 
-	update_line(&lex->loc, c);
 	if (loc != NULL) {
 		*loc = lex->loc;
+		for (usize i = 0; i < 2 && lex->stack[i] != CEOF; i += 1) {
+			update_line(&lex->loc, lex->stack[i]);
+		}
 	}
 
 	// Check if we need to store the character in the buffer
