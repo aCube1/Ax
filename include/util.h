@@ -33,6 +33,7 @@ void log_message(int level, const char *file, int line, const char *fmt, ...);
 
 void *xcalloc(size_t count, size_t size);
 void *xrealloc(void *ptr, size_t size);
+char *xstrndup(const char *str, size_t len);
 
 FILE *xfopen(const char *filename, const char *modes);
 

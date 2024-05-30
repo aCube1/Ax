@@ -7,6 +7,7 @@
 
 typedef enum TokenKind {
 	// Keywords
+	TK_AS,
 	TK_BOOL,
 	TK_CONST,
 	TK_F32,
@@ -28,31 +29,50 @@ typedef enum TokenKind {
 	TK_U64,
 	TK_U8,
 	TK_VOID,
-	TK_KEYWORDS_COUNT,
+	TK_LAST_KEYWORD = TK_VOID,
 
-	// Symbols
+	// Operators
 	TK_ARROW,
-	TK_ASTERISK,
-	TK_COMMA,
+	TK_BAND,
+	TK_BAND_EQ,
+	TK_BNOT,
+	TK_BNOT_EQ,
+	TK_BOR,
+	TK_BOR_EQ,
+	TK_BRACE_L,
+	TK_BRACE_R,
+	TK_BRACKET_L,
+	TK_BRACKET_R,
+	TK_BXOR,
+	TK_BXOR_EQ,
 	TK_COLON,
-	TK_COLONEQ,
+	TK_COLON_EQ,
+	TK_COMMA,
 	TK_EQUAL,
-	TK_EQUALEQ,
-	TK_LBRACE,
+	TK_LAND,
+	TK_LEQUAL_EQ,
 	TK_LESS,
-	TK_LESSEQ,
-	TK_LPAREN,
+	TK_LESS_EQ,
+	TK_LNOT,
+	TK_LNOT_EQ,
+	TK_LOR,
+	TK_MINUS,
+	TK_MINUS_EQ,
+	TK_PAREN_L,
+	TK_PAREN_R,
 	TK_PLUS,
-	TK_PLUSEQ,
-	TK_RBRACE,
-	TK_RPAREN,
+	TK_PLUS_EQ,
 	TK_SEMICOLON,
 	TK_SLASH,
-	TK_SYMBOLS_COUNT,
+	TK_SLASH_EQ,
+	TK_STAR,
+	TK_STAR_EQ,
+	TK_LAST_OPERATOR = TK_STAR_EQ,
 
 	// Data
+	TK_FLOAT,
 	TK_IDENTIFIER,
-	TK_NUMBER,
+	TK_INTEGER,
 	TK_STRING,
 
 	// Misc.
@@ -96,6 +116,7 @@ typedef struct LexState {
 void lex_init(LexState *lex, FILE *file);
 void lex_close(LexState *lex);
 
-TokenKind lex_scan(LexState *lex, Token *out);
+TokenKind lex_scan(LexState *lex, Token *tok);
+const char *lex_tok2str(TokenKind tok);
 
 #endif

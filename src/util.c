@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 void log_message(int level, const char *file, int line, const char *fmt, ...) {
@@ -53,6 +54,16 @@ void *xrealloc(void *ptr, size_t size) {
 	}
 
 	return new;
+}
+
+char *xstrndup(const char *str, size_t len) {
+	char *dup = strndup(str, len);
+	if (dup == NULL) {
+		log_fatal("xstrndup failed!");
+		abort();
+	}
+
+	return dup;
 }
 
 FILE *xfopen(const char *filename, const char *modes) {

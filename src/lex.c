@@ -14,9 +14,78 @@
 
 #define CEOF '\0'
 
+static const char *tokens[] = {
+	// Keywords (Must be sorted)
+	[TK_AS] = "as",
+	[TK_BOOL] = "bool",
+	[TK_CONST] = "const",
+	[TK_F32] = "f32",
+	[TK_F64] = "f64",
+	[TK_FALSE] = "false",
+	[TK_FOR] = "for",
+	[TK_FUNC] = "func",
+	[TK_I16] = "i16",
+	[TK_I32] = "i32",
+	[TK_I64] = "i64",
+	[TK_I8] = "i8",
+	[TK_IF] = "if",
+	[TK_IMPORT] = "import",
+	[TK_MUT] = "mut",
+	[TK_PUB] = "pub",
+	[TK_TRUE] = "true",
+	[TK_U16] = "u16",
+	[TK_U32] = "u32",
+	[TK_U64] = "u64",
+	[TK_U8] = "u8",
+	[TK_VOID] = "void",
+
+	// Operators
+	[TK_ARROW] = "->",
+	[TK_BAND] = "&",
+	[TK_BAND_EQ] = "&=",
+	[TK_BNOT] = "~",
+	[TK_BNOT_EQ] = "~=",
+	[TK_BOR] = "|",
+	[TK_BOR_EQ] = "|=",
+	[TK_BRACE_L] = "{",
+	[TK_BRACE_R] = "}",
+	[TK_BRACKET_L] = "[",
+	[TK_BRACKET_R] = "]",
+	[TK_BXOR] = "^",
+	[TK_BXOR_EQ] = "^=",
+	[TK_COLON] = ":",
+	[TK_COLON_EQ] = ":=",
+	[TK_COMMA] = ",",
+	[TK_EQUAL] = "=",
+	[TK_LAND] = "&&",
+	[TK_LEQUAL_EQ] = "==",
+	[TK_LESS] = "<",
+	[TK_LESS_EQ] = "<=",
+	[TK_LNOT] = "!",
+	[TK_LNOT_EQ] = "!=",
+	[TK_LOR] = "||",
+	[TK_MINUS] = "-",
+	[TK_MINUS_EQ] = "-=",
+	[TK_PAREN_L] = "(",
+	[TK_PAREN_R] = ")",
+	[TK_PLUS] = "+",
+	[TK_PLUS_EQ] = "+=",
+	[TK_SEMICOLON] = ";",
+	[TK_SLASH] = "/",
+	[TK_SLASH_EQ] = "/=",
+	[TK_STAR] = "*",
+	[TK_STAR_EQ] = "*=",
+};
+
+static_assert(
+	sizeof(tokens) / sizeof(const char *) == TK_LAST_OPERATOR + 1,
+	"Tokens array doesn't have the same size of Tokens Enum."
+);
+
 static _Noreturn void push_error(Location loc, const char *fmt, ...);
 
 static TokenKind lex_number(LexState *lex, Token *out);
+static TokenKind lex_identifier(LexState *lex, Token *out);
 
 static void buffer_insert(LexState *lex, const char *s, usize len);
 static void buffer_clear(LexState *lex);
@@ -42,19 +111,30 @@ void lex_close(LexState *lex) {
 	free(lex->buf);
 }
 
-TokenKind lex_scan(LexState *lex, Token *out) {
-	char c = trimspaces(lex, &out->loc);
+TokenKind lex_scan(LexState *lex, Token *tok) {
+	char c = trimspaces(lex, &tok->loc);
 	if (c == CEOF) { // Check if we reached the end-of-file
-		out->kind = TK_EOF;
-		return out->kind;
+		tok->kind = TK_EOF;
+		return tok->kind;
 	}
 
 	if (isdigit(c)) {
 		stack_push(lex, c, false);
-		return lex_number(lex, out);
+		return lex_number(lex, tok);
 	}
 
-	return out->kind;
+	if (isalpha(c) || c == '_') {
+		stack_push(lex, c, false);
+		return lex_identifier(lex, tok);
+	}
+
+	return tok->kind;
+}
+
+const char *lex_tok2str(TokenKind tok) {
+	assert(tok <= TK_LAST_KEYWORD);
+
+	return tokens[tok];
 }
 
 static _Noreturn void push_error(Location loc, const char *fmt, ...) {
@@ -184,14 +264,12 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 	if (c != CEOF) {
 		stack_push(lex, c, true);
 	}
-	out->kind = TK_NUMBER;
-
-	// log_trace("%s", lex->buf);
 
 	errno = 0;
 	if ((state & F_FLT) > 0) {
-		// Convert buffer to double
 		out->fval = strtod(lex->buf, NULL);
+		out->kind = TK_FLOAT;
+
 	} else {
 		u64 exp = 0;
 		if (exp_idx != 0) {
@@ -199,6 +277,7 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 		}
 
 		out->uval = strtoumax(lex->buf + (base == 10 ? 0 : 2), NULL, base);
+		out->kind = TK_INTEGER;
 
 		if (out->uval != 0) {
 			// Compute exponent if the value is not 0
@@ -220,7 +299,46 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 	}
 
 	buffer_clear(lex);
-	return TK_NUMBER;
+	return out->kind;
+}
+
+static int keyword_cmp(const void *v1, const void *v2) {
+	return strcmp(*(const char **)v1, *(const char **)v2);
+}
+
+static TokenKind lex_identifier(LexState *lex, Token *out) {
+	char c = nextchr(lex, &out->loc, true);
+	assert(c != CEOF && (isalpha(c) || c == '_'));
+
+	while (c != CEOF) {
+		if (!isalnum(c) && c != '_') {
+			// We found a invalid identifier symbol
+			stack_push(lex, c, true);
+			break;
+		}
+
+		c = nextchr(lex, NULL, true);
+	}
+
+	const char **token = bsearch(
+		&lex->buf, tokens, TK_LAST_KEYWORD + 1, sizeof(tokens[0]), keyword_cmp
+	);
+
+	if (token != NULL) {
+		// Calculate the difference between the found keyword address to the
+		// address of the first keyword in the list.
+		// Ex:
+		// 	token = 0xfff2; tokens = 0xfff0
+		// 	token - tokens -> 0xfff2 - 0xfff0 => 2
+		out->kind = token - tokens;
+	} else {
+		// We didn't found a matching keyword, so we treat it as a identifier
+		out->kind = TK_IDENTIFIER;
+		out->ident = xstrndup(lex->buf, lex->buflen);
+	}
+
+	buffer_clear(lex);
+	return out->kind;
 }
 
 static void buffer_insert(LexState *lex, const char *s, usize len) {
