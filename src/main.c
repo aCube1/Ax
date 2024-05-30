@@ -41,6 +41,14 @@ int main(int argc, char *argv[]) {
 				tok.ident = NULL;
 			}
 			break;
+		case TK_STRING:
+			if (tok.str.ptr != NULL) {
+				log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.str.ptr);
+				free(tok.ident);
+				tok.str.ptr = NULL;
+			}
+			break;
+			break;
 		default:
 			log_debug(
 				"%d:%d -> %s", tok.loc.lineno, tok.loc.colno, lex_tok2str(tok.kind)

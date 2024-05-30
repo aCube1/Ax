@@ -44,7 +44,6 @@ static const char *tokens[] = {
 	[TK_BAND] = "&",
 	[TK_BAND_EQ] = "&=",
 	[TK_BNOT] = "~",
-	[TK_BNOT_EQ] = "~=",
 	[TK_BOR] = "|",
 	[TK_BOR_EQ] = "|=",
 	[TK_BRACE_L] = "{",
@@ -56,7 +55,10 @@ static const char *tokens[] = {
 	[TK_COLON] = ":",
 	[TK_COLON_EQ] = ":=",
 	[TK_COMMA] = ",",
+	[TK_DOT] = ".",
 	[TK_EQUAL] = "=",
+	[TK_GREATER] = ">",
+	[TK_GREATER_EQ] = ">=",
 	[TK_LAND] = "&&",
 	[TK_LEQUAL_EQ] = "==",
 	[TK_LESS] = "<",
@@ -66,11 +68,17 @@ static const char *tokens[] = {
 	[TK_LOR] = "||",
 	[TK_MINUS] = "-",
 	[TK_MINUS_EQ] = "-=",
+	[TK_MOD] = "%",
+	[TK_MOD_EQ] = "%=",
 	[TK_PAREN_L] = "(",
 	[TK_PAREN_R] = ")",
 	[TK_PLUS] = "+",
 	[TK_PLUS_EQ] = "+=",
 	[TK_SEMICOLON] = ";",
+	[TK_SHIFTL] = "<<",
+	[TK_SHIFTL_EQ] = "<<=",
+	[TK_SHIFTR] = ">>",
+	[TK_SHIFTR_EQ] = ">>=",
 	[TK_SLASH] = "/",
 	[TK_SLASH_EQ] = "/=",
 	[TK_STAR] = "*",
@@ -81,61 +89,6 @@ static_assert(
 	sizeof(tokens) / sizeof(const char *) == TK_LAST_OPERATOR + 1,
 	"Tokens array doesn't have the same size of Tokens Enum."
 );
-
-static _Noreturn void push_error(Location loc, const char *fmt, ...);
-
-static TokenKind lex_number(LexState *lex, Token *out);
-static TokenKind lex_identifier(LexState *lex, Token *out);
-
-static void buffer_insert(LexState *lex, const char *s, usize len);
-static void buffer_clear(LexState *lex);
-
-static void stack_push(LexState *lex, char c, bool frombuf);
-
-static char nextchr(LexState *lex, Location *loc, bool buffer);
-static char trimspaces(LexState *lex, Location *loc);
-
-void lex_init(LexState *lex, FILE *file) {
-	memset(lex, 0, sizeof(LexState));
-
-	lex->file = file;
-	lex->loc.lineno = 1;
-	lex->loc.colno = 1;
-
-	lex->bufsize = 128;
-	lex->buf = xcalloc(1, lex->bufsize * sizeof(char));
-}
-
-void lex_close(LexState *lex) {
-	fclose(lex->file);
-	free(lex->buf);
-}
-
-TokenKind lex_scan(LexState *lex, Token *tok) {
-	char c = trimspaces(lex, &tok->loc);
-	if (c == CEOF) { // Check if we reached the end-of-file
-		tok->kind = TK_EOF;
-		return tok->kind;
-	}
-
-	if (isdigit(c)) {
-		stack_push(lex, c, false);
-		return lex_number(lex, tok);
-	}
-
-	if (isalpha(c) || c == '_') {
-		stack_push(lex, c, false);
-		return lex_identifier(lex, tok);
-	}
-
-	return tok->kind;
-}
-
-const char *lex_tok2str(TokenKind tok) {
-	assert(tok <= TK_LAST_KEYWORD);
-
-	return tokens[tok];
-}
 
 static _Noreturn void push_error(Location loc, const char *fmt, ...) {
 	fprintf(stderr, "%d:%d ", loc.lineno, loc.colno);
@@ -148,6 +101,90 @@ static _Noreturn void push_error(Location loc, const char *fmt, ...) {
 	fprintf(stderr, "\n");
 
 	exit(EXIT_FAILURE);
+}
+
+static void buffer_insert(LexState *lex, const char *s, usize len) {
+	if (lex->buflen + len > lex->bufsize) {
+		lex->bufsize *= 2;
+		lex->buf = xrealloc(lex->buf, lex->bufsize);
+	}
+
+	memcpy(lex->buf + lex->buflen, s, len);
+	lex->buflen += len;
+	lex->buf[lex->buflen] = '\0';
+}
+
+static void buffer_clear(LexState *lex) {
+	lex->buflen = 0;
+	lex->buf[0] = '\0';
+}
+
+static void stack_push(LexState *lex, char c, bool frombuf) {
+	assert(lex->stack[1] == CEOF); // This should never happen
+
+	lex->stack[1] = lex->stack[0];
+	lex->stack[0] = c;
+
+	if (frombuf) { // Consume the character from buffer
+		lex->buflen -= 1;
+		lex->buf[lex->buflen] = '\0';
+	}
+}
+
+static void update_line(Location *loc, char c) {
+	if (c == '\n') { // Update line number and reset column
+		loc->lineno += 1;
+		loc->colno = 0;
+	} else if (c == '\t') {
+		loc->colno += 4; // All tabs count as 4 columns
+	} else {
+		loc->colno += 1;
+	}
+}
+
+static char nextchr(LexState *lex, Location *loc, bool buffer) {
+	char c;
+
+	if (lex->stack[0] != CEOF) {
+		c = lex->stack[0];
+		lex->stack[0] = lex->stack[1];
+		lex->stack[1] = CEOF;
+	} else {
+		c = (char)fgetc(lex->file);
+		update_line(&lex->loc, c);
+
+		if (feof(lex->file)) {
+			c = CEOF;
+		}
+	}
+
+	if (loc != NULL) {
+		*loc = lex->loc;
+		for (usize i = 0; i < 2 && lex->stack[i] != CEOF; i += 1) {
+			update_line(&lex->loc, lex->stack[i]);
+		}
+	}
+
+	// Check if we need to store the character in the buffer
+	if (buffer) {
+		buffer_insert(lex, &c, 1);
+	}
+
+	return c;
+}
+
+static inline bool is_space(char c) {
+	return c == ' ' || c == '\t' || c == '\n';
+}
+
+static char trimspaces(LexState *lex, Location *loc) {
+	char c = ' ';
+
+	while (c != CEOF && is_space(c)) {
+		c = nextchr(lex, loc, false);
+	}
+
+	return c;
 }
 
 static TokenKind lex_number(LexState *lex, Token *out) {
@@ -341,86 +378,273 @@ static TokenKind lex_identifier(LexState *lex, Token *out) {
 	return out->kind;
 }
 
-static void buffer_insert(LexState *lex, const char *s, usize len) {
-	if (lex->buflen + len > lex->bufsize) {
-		lex->bufsize *= 2;
-		lex->buf = xrealloc(lex->buf, lex->bufsize);
-	}
+static TokenKind lex_string(LexState *lex, Token *out) {
+	char c = nextchr(lex, &out->loc, false);
+	assert(c != CEOF);
 
-	memcpy(lex->buf + lex->buflen, s, len);
-	lex->buflen += len;
-	lex->buf[lex->buflen] = '\0';
+	out->kind = TK_STRING;
+	return out->kind;
 }
 
-static void buffer_clear(LexState *lex) {
-	lex->buflen = 0;
-	lex->buf[0] = '\0';
-}
+static TokenKind lex_duo_operator(LexState *lex, Token *out) {
+	char c = nextchr(lex, &out->loc, false);
+	assert(c != CEOF);
 
-static void stack_push(LexState *lex, char c, bool frombuf) {
-	assert(lex->stack[1] == CEOF); // This should never happen
-
-	lex->stack[1] = lex->stack[0];
-	lex->stack[0] = c;
-
-	if (frombuf) { // Consume the character from buffer
-		lex->buflen -= 1;
-		lex->buf[lex->buflen] = '\0';
-	}
-}
-
-static void update_line(Location *loc, char c) {
-	if (c == '\n') { // Update line number and reset column
-		loc->lineno += 1;
-		loc->colno = 0;
-	} else if (c == '\t') {
-		loc->colno += 4; // All tabs count as 4 columns
-	} else {
-		loc->colno += 1;
-	}
-}
-
-static char nextchr(LexState *lex, Location *loc, bool buffer) {
-	char c;
-
-	if (lex->stack[0] != CEOF) {
-		c = lex->stack[0];
-		lex->stack[0] = lex->stack[1];
-		lex->stack[1] = CEOF;
-	} else {
-		c = (char)fgetc(lex->file);
-		update_line(&lex->loc, c);
-
-		if (feof(lex->file)) {
-			c = CEOF;
+	switch (c) {
+	case '=':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_LEQUAL_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_EQUAL;
 		}
-	}
-
-	if (loc != NULL) {
-		*loc = lex->loc;
-		for (usize i = 0; i < 2 && lex->stack[i] != CEOF; i += 1) {
-			update_line(&lex->loc, lex->stack[i]);
+		break;
+	case ':':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_COLON_EQ;
+		} else {
+			out->kind = TK_COLON;
+			stack_push(lex, c, false);
 		}
+		break;
+	case '!':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_LNOT_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_LNOT;
+		}
+		break;
+	case '^':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_BXOR_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_BXOR;
+		}
+		break;
+	case '*':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_STAR_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_STAR;
+		}
+		break;
+	case '%':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_MOD_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_MOD;
+		}
+		break;
+	case '+':
+		c = nextchr(lex, NULL, false);
+		if (c == '=') {
+			out->kind = TK_PLUS_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_PLUS;
+		}
+		break;
+	case '-':
+		c = nextchr(lex, NULL, false);
+		if (c == '>') {
+			out->kind = TK_ARROW;
+		} else if (c == '=') {
+			out->kind = TK_MINUS_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_MINUS;
+		}
+		break;
+
+	case '&':
+		c = nextchr(lex, NULL, false);
+		if (c == '&') {
+			out->kind = TK_LAND;
+		} else if (c == '=') {
+			out->kind = TK_BAND_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_BAND;
+		}
+		break;
+	case '|':
+		c = nextchr(lex, NULL, false);
+		if (c == '|') {
+			out->kind = TK_LOR;
+		} else if (c == '=') {
+			out->kind = TK_BOR_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_BOR;
+		}
+		break;
+	case '/':
+		c = nextchr(lex, NULL, false);
+		if (c == '/') {
+			while (c != CEOF && c != '\n') {
+				c = nextchr(lex, NULL, false);
+			}
+			out->kind = lex_scan(lex, out); // Search for a valid token
+		} else if (c == '=') {
+			out->kind = TK_SLASH_EQ;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_SLASH;
+		}
+		break;
+	default:
+		assert(0); // UNREACHABLE
 	}
 
-	// Check if we need to store the character in the buffer
-	if (buffer) {
-		buffer_insert(lex, &c, 1);
-	}
-
-	return c;
+	return out->kind;
 }
 
-static inline bool is_space(char c) {
-	return c == ' ' || c == '\t' || c == '\n';
-}
+static TokenKind lex_tri_operator(LexState *lex, Token *out) {
+	char c = nextchr(lex, &out->loc, false);
+	assert(c != CEOF);
 
-static char trimspaces(LexState *lex, Location *loc) {
-	char c = ' ';
-
-	while (c != CEOF && is_space(c)) {
-		c = nextchr(lex, loc, false);
+	// TODO: Improve 3 characters operator parsing
+	switch (c) {
+	case '<':
+		c = nextchr(lex, NULL, false);
+		if (c == '<') {
+			c = nextchr(lex, NULL, false);
+			if (c == '=') {
+				out->kind = TK_SHIFTL_EQ;
+			} else {
+				stack_push(lex, c, false);
+				out->kind = TK_SHIFTL;
+			}
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_LESS;
+		}
+		break;
+	case '>':
+		c = nextchr(lex, NULL, false);
+		if (c == '>') {
+			c = nextchr(lex, NULL, false);
+			if (c == '=') {
+				out->kind = TK_SHIFTR_EQ;
+			} else {
+				stack_push(lex, c, false);
+				out->kind = TK_SHIFTR;
+			}
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_GREATER;
+		}
+		break;
+	default:
+		assert(0); // UNREACHABLE
 	}
 
-	return c;
+	return out->kind;
+}
+
+void lex_init(LexState *lex, FILE *file) {
+	memset(lex, 0, sizeof(LexState));
+
+	lex->file = file;
+	lex->loc.lineno = 1;
+	lex->loc.colno = 1;
+
+	lex->bufsize = 128;
+	lex->buf = xcalloc(1, lex->bufsize * sizeof(char));
+}
+
+void lex_close(LexState *lex) {
+	fclose(lex->file);
+	free(lex->buf);
+}
+
+TokenKind lex_scan(LexState *lex, Token *tok) {
+	char c = trimspaces(lex, &tok->loc);
+	if (c == CEOF) { // Check if we reached the end-of-file
+		tok->kind = TK_EOF;
+		return tok->kind;
+	}
+
+	if (isdigit(c)) {
+		stack_push(lex, c, false);
+		return lex_number(lex, tok);
+	}
+
+	if (isalpha(c) || c == '_') {
+		stack_push(lex, c, false);
+		return lex_identifier(lex, tok);
+	}
+
+	switch (c) {
+	case '"':
+	case '\'':
+		stack_push(lex, c, false);
+		return lex_string(lex, tok);
+	case '=': // = ==
+	case ':': // : :=
+	case '!': // ! !=
+	case '^': // ^ ^=
+	case '*': // * *=
+	case '%': // % %=
+	case '+': // + +=
+	case '-': // - -= ->
+	case '&': // & &= &&
+	case '|': // | |= ||
+	case '/': // / /= //
+		stack_push(lex, c, false);
+		return lex_duo_operator(lex, tok);
+	case '<': // < <= << <<=
+	case '>': // > >= >> >>=
+		stack_push(lex, c, false);
+		return lex_tri_operator(lex, tok);
+	case '~':
+		tok->kind = TK_BNOT;
+		break;
+	case ',':
+		tok->kind = TK_COMMA;
+		break;
+	case '.':
+		tok->kind = TK_DOT;
+	case ';':
+		tok->kind = TK_SEMICOLON;
+		break;
+	case '{':
+		tok->kind = TK_BRACE_L;
+		break;
+	case '}':
+		tok->kind = TK_BRACE_R;
+		break;
+	case '[':
+		tok->kind = TK_BRACKET_L;
+		break;
+	case ']':
+		tok->kind = TK_BRACKET_R;
+		break;
+	case '(':
+		tok->kind = TK_PAREN_L;
+		break;
+	case ')':
+		tok->kind = TK_PAREN_R;
+		break;
+	default:
+		push_error(lex->loc, "Unknown symbol found: %c", c);
+		break;
+	}
+
+	return tok->kind;
+}
+
+const char *lex_tok2str(TokenKind tok) {
+	assert(tok <= TK_LAST_OPERATOR);
+	return tokens[tok];
 }
