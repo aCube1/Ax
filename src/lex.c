@@ -435,7 +435,7 @@ static TokenKind lex_string(LexState *lex, Token *out) {
 		c = nextchr(lex, NULL, false);
 		while (c != '"') {
 			if (c == CEOF) {
-				push_error(lex->loc, "Unexpected end of file");
+				push_error(out->loc, "Unexpected end of file");
 			}
 
 			stack_push(lex, c, false);
@@ -445,16 +445,32 @@ static TokenKind lex_string(LexState *lex, Token *out) {
 			c = nextchr(lex, NULL, false);
 		}
 
+		out->kind = TK_STRING;
 		out->str.len = lex->buflen;
 		out->str.ptr = xstrndup(lex->buf, lex->buflen);
 
 		buffer_clear(lex);
 		break;
+	case '\'':
+		c = nextchr(lex, NULL, false);
+
+		if (c == '\'') {
+			push_error(out->loc, "Expected character before closing single-quote");
+		}
+
+		out->kind = TK_INTEGER;
+		out->uval = (u64)c;
+
+		c = nextchr(lex, NULL, false);
+		if (c != '\'') {
+			push_error(out->loc, "Expected closing single-quote");
+		}
+
+		break;
 	default:
 		assert(0); // UNREACHABLE
 	}
 
-	out->kind = TK_STRING;
 	return out->kind;
 }
 

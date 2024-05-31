@@ -9,6 +9,7 @@ pub func main() -> void {
 	const foo: i32 = 20;
 	const bar := 1.0e+1; // Type: f64; Scientific notation can be used
 	mut oxy: u32; // Default initializes to zero
+	const chr: u8 = 'c';
 
 	if (foo == 0) {
 		fmt.println("HI!"); // Print texts + '\n'
