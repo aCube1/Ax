@@ -44,10 +44,9 @@ int main(int argc, char *argv[]) {
 		case TK_STRING:
 			if (tok.str.ptr != NULL) {
 				log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.str.ptr);
-				free(tok.ident);
+				free(tok.str.ptr);
 				tok.str.ptr = NULL;
 			}
-			break;
 			break;
 		default:
 			log_debug(

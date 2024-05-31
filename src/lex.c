@@ -104,7 +104,7 @@ static _Noreturn void push_error(Location loc, const char *fmt, ...) {
 }
 
 static void buffer_insert(LexState *lex, const char *s, usize len) {
-	if (lex->buflen + len > lex->bufsize) {
+	if (lex->buflen + len >= lex->bufsize) {
 		lex->bufsize *= 2;
 		lex->buf = xrealloc(lex->buf, lex->bufsize);
 	}
@@ -120,7 +120,7 @@ static void buffer_clear(LexState *lex) {
 }
 
 static void stack_push(LexState *lex, char c, bool frombuf) {
-	assert(lex->stack[1] == CEOF); // This should never happen
+	assert(lex->stack[1] == CEOF);
 
 	lex->stack[1] = lex->stack[0];
 	lex->stack[0] = c;
@@ -378,9 +378,81 @@ static TokenKind lex_identifier(LexState *lex, Token *out) {
 	return out->kind;
 }
 
+static char lex_character(LexState *lex) {
+	char c = nextchr(lex, NULL, false);
+	assert(c != CEOF);
+
+	// Parse the escape characters
+	if (c == '\\') {
+		Location loc = lex->loc;
+		char buf[4] = { 0 };
+
+		c = nextchr(lex, NULL, false);
+
+		switch (c) {
+		case '\'':
+			return '\'';
+		case '"':
+			return '"';
+		case '0':
+			return '\0';
+		case 'a':
+			return '\a';
+		case 'b':
+			return '\b';
+		case 'f':
+			return '\f';
+		case 'n':
+			return '\n';
+		case 'r':
+			return '\r';
+		case 't':
+			return '\t';
+		case 'v':
+			return '\v';
+		case 'x':
+			buf[0] = nextchr(lex, NULL, false);
+			buf[1] = nextchr(lex, NULL, false);
+
+			// Convert hex sequence
+			c = (char)strtoul(&buf[0], (char **)&buf, 16);
+			if (buf[0] != '\0') {
+				push_error(loc, "Invalid hex escape sequence");
+			}
+			return c;
+		}
+	}
+
+	return c;
+}
+
 static TokenKind lex_string(LexState *lex, Token *out) {
 	char c = nextchr(lex, &out->loc, false);
 	assert(c != CEOF);
+
+	switch (c) {
+	case '"':
+		c = nextchr(lex, NULL, false);
+		while (c != '"') {
+			if (c == CEOF) {
+				push_error(lex->loc, "Unexpected end of file");
+			}
+
+			stack_push(lex, c, false);
+			char chr = lex_character(lex);
+			buffer_insert(lex, &chr, 1);
+
+			c = nextchr(lex, NULL, false);
+		}
+
+		out->str.len = lex->buflen;
+		out->str.ptr = xstrndup(lex->buf, lex->buflen);
+
+		buffer_clear(lex);
+		break;
+	default:
+		assert(0); // UNREACHABLE
+	}
 
 	out->kind = TK_STRING;
 	return out->kind;
@@ -615,6 +687,7 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 		break;
 	case '.':
 		tok->kind = TK_DOT;
+		break;
 	case ';':
 		tok->kind = TK_SEMICOLON;
 		break;
