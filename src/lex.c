@@ -196,7 +196,7 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 		B_MASK = B_DEC,
 	};
 
-	enum Flag {
+	enum StateFlag {
 		F_SYM = 0x08, // Is Symbol
 		F_FLT = 0x10, // Is Float
 		F_EXP = 0x20, // Is Exponent
@@ -261,10 +261,10 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 
 		if ((state & F_SEP) > 0) {
 			// The current state is a separator, but didn't found a digit after it
-			push_error(out->loc, "Unexpected separator");
+			push_error(out->loc, "Expected digit, found: %c", c);
 		}
 
-		if (!strchr(valid_states[(u8)c], state)) {
+		if (strchr(valid_states[(u8)c], state) == NULL) {
 			break;
 		}
 
@@ -276,19 +276,19 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 			lex->buflen -= 1;
 			lex->buf[lex->buflen] = '\0';
 			break;
-		case '.':
-			state |= F_FLT;
-			break;
 		case '-':
-		case 'p':
-		case 'P':
-			state |= F_FLT;
-			// FALLTHROUGH
 		case '+':
+			state |= F_SEP;
+			// FALLTHROUGH
 		case 'e':
 		case 'E':
+		case 'p':
+		case 'P':
+			exp_idx = lex->buflen - 1;
 			state |= B_DEC | F_EXP;
-			exp_idx = lex->buflen;
+			// FALLTHROUGH
+		case '.':
+			state |= F_FLT;
 			break;
 		default:
 			break;
@@ -306,7 +306,6 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 	if ((state & F_FLT) > 0) {
 		out->fval = strtod(lex->buf, NULL);
 		out->kind = TK_FLOAT;
-
 	} else {
 		u64 exp = 0;
 		if (exp_idx != 0) {
@@ -390,6 +389,8 @@ static char lex_character(LexState *lex) {
 		c = nextchr(lex, NULL, false);
 
 		switch (c) {
+		case '\\':
+			return '\\';
 		case '\'':
 			return '\'';
 		case '"':
