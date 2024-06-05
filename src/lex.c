@@ -384,10 +384,17 @@ static char lex_character(LexState *lex) {
 	if (c == '\\') {
 		Location loc = lex->loc;
 		char buf[4] = { 0 };
+		char *endptr = NULL;
 
 		c = nextchr(lex, NULL, false);
 
 		switch (c) {
+		case 'n':
+			return '\n';
+		case 'r':
+			return '\r';
+		case 't':
+			return '\t';
 		case '\\':
 			return '\\';
 		case '\'':
@@ -396,30 +403,20 @@ static char lex_character(LexState *lex) {
 			return '"';
 		case '0':
 			return '\0';
-		case 'a':
-			return '\a';
-		case 'b':
-			return '\b';
-		case 'f':
-			return '\f';
-		case 'n':
-			return '\n';
-		case 'r':
-			return '\r';
-		case 't':
-			return '\t';
-		case 'v':
-			return '\v';
 		case 'x':
 			buf[0] = nextchr(lex, NULL, false);
 			buf[1] = nextchr(lex, NULL, false);
 
 			// Convert hex sequence
-			c = (char)strtoul(&buf[0], (char **)&buf, 16);
-			if (buf[0] != '\0') {
+			c = (char)strtoul(buf, &endptr, 16);
+			if (*endptr != '\0') {
 				push_error(loc, "Invalid hex escape sequence");
 			}
 			return c;
+		case CEOF:
+			push_error(lex->loc, "Unexpected end of file");
+		default:
+			push_error(loc, "Invalid escape sequence '\\%c'", c);
 		}
 	}
 
@@ -458,8 +455,11 @@ static TokenKind lex_string(LexState *lex, Token *out) {
 			push_error(out->loc, "Expected character before closing single-quote");
 		}
 
+		stack_push(lex, c, false);
+		char chr = lex_character(lex);
+
 		out->kind = TK_INTEGER;
-		out->uval = (u64)c;
+		out->uval = (u64)chr;
 
 		c = nextchr(lex, NULL, false);
 		if (c != '\'') {
