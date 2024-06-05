@@ -14,7 +14,7 @@ typedef enum TokenKind {
 	TK_F64,
 	TK_FALSE,
 	TK_FOR,
-	TK_FUNC,
+	TK_FN,
 	TK_I16,
 	TK_I32,
 	TK_I64,
