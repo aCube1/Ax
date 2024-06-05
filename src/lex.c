@@ -53,7 +53,6 @@ static const char *tokens[] = {
 	[TK_BXOR] = "^",
 	[TK_BXOR_EQ] = "^=",
 	[TK_COLON] = ":",
-	[TK_COLON_EQ] = ":=",
 	[TK_COMMA] = ",",
 	[TK_DOT] = ".",
 	[TK_EQUAL] = "=",
@@ -489,15 +488,6 @@ static TokenKind lex_duo_operator(LexState *lex, Token *out) {
 			out->kind = TK_EQUAL;
 		}
 		break;
-	case ':':
-		c = nextchr(lex, NULL, false);
-		if (c == '=') {
-			out->kind = TK_COLON_EQ;
-		} else {
-			out->kind = TK_COLON;
-			stack_push(lex, c, false);
-		}
-		break;
 	case '!':
 		c = nextchr(lex, NULL, false);
 		if (c == '=') {
@@ -680,7 +670,6 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 		stack_push(lex, c, false);
 		return lex_string(lex, tok);
 	case '=': // = ==
-	case ':': // : :=
 	case '!': // ! !=
 	case '^': // ^ ^=
 	case '*': // * *=
@@ -696,18 +685,6 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 	case '>': // > >= >> >>=
 		stack_push(lex, c, false);
 		return lex_tri_operator(lex, tok);
-	case '~':
-		tok->kind = TK_BNOT;
-		break;
-	case ',':
-		tok->kind = TK_COMMA;
-		break;
-	case '.':
-		tok->kind = TK_DOT;
-		break;
-	case ';':
-		tok->kind = TK_SEMICOLON;
-		break;
 	case '{':
 		tok->kind = TK_BRACE_L;
 		break;
@@ -720,11 +697,26 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 	case ']':
 		tok->kind = TK_BRACKET_R;
 		break;
+	case '~':
+		tok->kind = TK_BNOT;
+		break;
+	case ':':
+		tok->kind = TK_COLON;
+		break;
+	case ',':
+		tok->kind = TK_COMMA;
+		break;
+	case '.':
+		tok->kind = TK_DOT;
+		break;
 	case '(':
 		tok->kind = TK_PAREN_L;
 		break;
 	case ')':
 		tok->kind = TK_PAREN_R;
+		break;
+	case ';':
+		tok->kind = TK_SEMICOLON;
 		break;
 	default:
 		push_error(lex->loc, "Unknown symbol found: %c", c);

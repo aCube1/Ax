@@ -45,7 +45,6 @@ typedef enum TokenKind {
 	TK_BXOR,
 	TK_BXOR_EQ,
 	TK_COLON,
-	TK_COLON_EQ,
 	TK_COMMA,
 	TK_DOT,
 	TK_EQUAL,
