@@ -22,21 +22,22 @@ static const char *tokens[] = {
 	[TK_F32] = "f32",
 	[TK_F64] = "f64",
 	[TK_FALSE] = "false",
-	[TK_FOR] = "for",
 	[TK_FN] = "fn",
+	[TK_FOR] = "for",
 	[TK_I16] = "i16",
 	[TK_I32] = "i32",
 	[TK_I64] = "i64",
 	[TK_I8] = "i8",
 	[TK_IF] = "if",
-	[TK_IMPORT] = "import",
 	[TK_MUT] = "mut",
+	[TK_PACKAGE] = "package",
 	[TK_PUB] = "pub",
 	[TK_TRUE] = "true",
 	[TK_U16] = "u16",
 	[TK_U32] = "u32",
 	[TK_U64] = "u64",
 	[TK_U8] = "u8",
+	[TK_USE] = "use",
 	[TK_VOID] = "void",
 
 	// Operators
@@ -53,6 +54,7 @@ static const char *tokens[] = {
 	[TK_BXOR] = "^",
 	[TK_BXOR_EQ] = "^=",
 	[TK_COLON] = ":",
+	[TK_COLON2] = "::",
 	[TK_COMMA] = ",",
 	[TK_DOT] = ".",
 	[TK_EQUAL] = "=",
@@ -497,6 +499,15 @@ static TokenKind lex_duo_operator(LexState *lex, Token *out) {
 			out->kind = TK_LNOT;
 		}
 		break;
+	case ':':
+		c = nextchr(lex, NULL, false);
+		if (c == ':') {
+			out->kind = TK_COLON2;
+		} else {
+			stack_push(lex, c, false);
+			out->kind = TK_COLON;
+		}
+		break;
 	case '^':
 		c = nextchr(lex, NULL, false);
 		if (c == '=') {
@@ -671,6 +682,7 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 		return lex_string(lex, tok);
 	case '=': // = ==
 	case '!': // ! !=
+	case ':': // : ::
 	case '^': // ^ ^=
 	case '*': // * *=
 	case '%': // % %=
@@ -699,9 +711,6 @@ TokenKind lex_scan(LexState *lex, Token *tok) {
 		break;
 	case '~':
 		tok->kind = TK_BNOT;
-		break;
-	case ':':
-		tok->kind = TK_COLON;
 		break;
 	case ',':
 		tok->kind = TK_COMMA;
