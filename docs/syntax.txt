@@ -1,0 +1,239 @@
+# Tokens
+Token -> One of:
+	Integer
+	Float
+	String
+	Keyword
+	Identifier
+	Operator
+	Comment
+
+Comment <- "//" ~[\n]*
+
+Operator <- Any of:
+	! != % %= & && &= ( ) * *= + += , - -= . / /= : :: ; < << <<= <=
+	= == > >> >>= >= [ ] ^ ^= { | || |= } ~
+
+Keyword <- Any of:
+	as bool const f32 f64 false fn for i16 i32 i64 i8 if mut package pub str
+	true u16 u32 u64 u8 use void
+
+Identifier <- Any of:
+	Name
+	Name::Identifier
+
+Name <- [a-zA-Z_] [a-zA-Z0-9_]*
+
+
+# Types
+Type -> One of:
+	PrimitiveType
+	PointerType
+	FuncType
+
+PrimitiveType <- Any of:
+	IntegerType
+	FloatType
+	"str"
+	"bool"
+	"void"
+
+IntegerType <- Any of:
+	u8 u16 u32 u64 i8 i16 i32 i64
+
+FloatType <- Any of:
+	f32 f64
+
+PointerType <- "*" Type
+
+FuncType <- "fn" Prototype
+
+Prototype <- "(" Parameters ")" "->" Type
+
+Parameters <- Exactly
+	Parameter ","?
+	Parameter "," Parameters
+
+Parameter <- Identifier ":" Type ("=" Expr)?
+
+
+# Literals
+Literal -> Any of:
+	IntegerLiteral
+	FloatLiteral
+	StringLiteral
+	PointerLiteral
+	"true"
+	"false"
+	"void"
+
+IntegerLiteral <- Exactly:
+	DecLiteral
+	"0x" HexLiteral
+	"0o" OctLiteral
+	"0b" BinLiteral
+
+FloatLiteral <- Exactly:
+	DecLiteral "." DecLiteral DecExponent?
+	DecLiteral DecExponent?
+	"0x" HexLiteral "." HexLiteral BinExponent?
+	"0x" HexLiteral BinExponent?
+
+DecExponent <- [eE] [-+]? Dec*
+BinExponent <- [pP] [-+]? Dec*
+
+DecLiteral <- [1-9] ('_'? Dec)*
+HexLiteral <- Hex ('_'? Hex)*
+OctLiteral <- Oct ('_'? Dec)*
+BinLiteral <- Bin ('_'? Bin)*
+
+Dec <- [0-9]
+Hex <- [0-9a-fA-F]
+Oct <- [0-7]
+Bin <- [01]
+
+StringLiteral <- "\"" StringChars "\""
+
+StringChars <- StringValidChar*
+
+StringValidChar <- Any of:
+	[^"\]
+	EscapeSequence
+
+EscapeSequence <- Exactly:
+	"\" [nrt\'"]
+	"\x" Hex Hex
+
+
+# Expressions
+Expr <- Any of:
+	OrExpr
+	AssignExpr
+	IfExpr
+	ForLoop
+
+OrExpr <- Exactly:
+	AndExpr
+	OrExpr "||" AndExpr
+
+AndExpr <- Exactly:
+	CompareExpr
+	AndExpr "&&" CompareExpr
+
+CompareExpr <- Exactly:
+	BitExpr
+	CompareExpr CompareOp BitExpr
+
+CompareExpr <- Any of:
+	== != < > <= >=
+
+BitExpr <- Exactly:
+	BitShiftExpr
+	BitExpr BitOp BitShiftExpr
+
+BitOp <- Any of:
+	| ^ &
+
+BitShiftExpr <- Exactly:
+	AddExpr
+	BitShiftExpr "<<" AddExpr
+	BitShiftExpr ">>" AddExpr
+
+AddExpr <- Exactly:
+	MulExpr
+	AddExpr "+" MulExpr
+	AddExpr "-" MulExpr
+
+MulExpr <- Exactly:
+	CastExpr
+	MulExpr "*" CastExpr
+	MulExpr "/" CastExpr
+	MulExpr "%" CastExpr
+
+CastExpr <- Exactly:
+	UnaryExpr
+	CastExpr "as" Type
+
+UnaryExpr <- Exactly:
+	ExeExpr
+	BlockExpr
+	UnaryOp UnaryExpr
+
+UnaryOp <- Any of:
+	- ~ ! * &
+
+ExeExpr <- Any of:
+	NestedExpr
+	CallExpr
+
+NestedExpr <- Exactly:
+	Identifier
+	Literal
+	"(" Expr ")"
+
+CallExpr <- ExeExpr "(" ArgList? ")"
+
+ArgList <- Exactly:
+	Expr "," ArgList
+	Expr ","?
+
+BlockExpr <- "{" ExprList  "}"
+
+ExprList <- Exactly:
+	Expr ";" ExprList?
+	Bindings ";" ExprList?
+
+AssignExpr <- AssignTarget AssignOp Expr
+
+AssignTarget <- Any of:
+	Objectselector
+	IndirectTarget
+
+ObjectSelector <- Exactly:
+	Identifier
+	"(" ObjectSelector ")"
+
+IndirectTarget <- Exactly:
+	"*" UnaryExpr
+	"(" IndirectTarget ")"
+
+AssignOp <- Any of:
+	= += -= *= /= %= <<= >>= &= |= ^=
+
+IfExpr <- "if" "(" Expr ")" Expr ("else" Expr)?
+
+ForLoop <- "for" "(" ForFields ")" Expr
+
+ForFields <- (ForInital ";")? Expr (";" Expr)?
+
+ForInitial <- Binding ("," ForInitial)?
+
+Binding <- Name ":" (Type)? "=" Expr
+
+
+# Declarations
+Declarations <- "pub"? Decl ";" Declarations?
+
+Decl <- Any of:
+	GlobalVarDecl
+	FuncDecl
+
+GlobalVarDecl <- Exactly:
+	"const" GlobalBindings
+	"mut" GlobalBindings
+
+GlobalBindings <- GlobalBinding ("," GlobalBindings)?
+
+GlobalBinding <- Identifier ":" (Type)? "=" Expr
+
+FuncDecl <- "fn" Identifier Prototype "{" Expr "}"
+
+
+# Packages
+PackageUnit <- PackageDecl? Uses? Declarations?
+
+PackageDecl <- "package" Name ";"
+
+Uses <- UseDecl Uses?
+
+UseDecl <- "pub"? "use" Identifier ("as" Name)? ";"
