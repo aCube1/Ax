@@ -15,12 +15,10 @@ Operator <- Any of:
 	= == > >> >>= >= [ ] ^ ^= { | || |= } ~
 
 Keyword <- Any of:
-	as bool const f32 f64 false fn for i16 i32 i64 i8 if mut package pub str
+	as bool const f32 f64 false fn for i16 i32 i64 i8 if mut package pub rune
 	true u16 u32 u64 u8 use void
 
-Identifier <- Any of:
-	Name
-	Name::Identifier
+Identifier <- Name ("::" Identifier)?
 
 Name <- [a-zA-Z_] [a-zA-Z0-9_]*
 
@@ -29,12 +27,13 @@ Name <- [a-zA-Z_] [a-zA-Z0-9_]*
 Type -> One of:
 	PrimitiveType
 	PointerType
+	ArrayType
 	FuncType
 
 PrimitiveType <- Any of:
 	IntegerType
 	FloatType
-	"str"
+	"rune"
 	"bool"
 	"void"
 
@@ -45,6 +44,8 @@ FloatType <- Any of:
 	f32 f64
 
 PointerType <- "*" Type
+
+ArrayType <- "[" Expr? "]" Type
 
 FuncType <- "fn" Prototype
 
@@ -61,7 +62,9 @@ Parameter <- Identifier ":" Type ("=" Expr)?
 Literal -> Any of:
 	IntegerLiteral
 	FloatLiteral
+	RuneLiteral
 	StringLiteral
+	ArrayLiteral
 	PointerLiteral
 	"true"
 	"false"
@@ -82,15 +85,21 @@ FloatLiteral <- Exactly:
 DecExponent <- [eE] [-+]? Dec*
 BinExponent <- [pP] [-+]? Dec*
 
-DecLiteral <- [1-9] ('_'? Dec)*
-HexLiteral <- Hex ('_'? Hex)*
-OctLiteral <- Oct ('_'? Dec)*
-BinLiteral <- Bin ('_'? Bin)*
+DecLiteral <- [1-9] ("_"? Dec)*
+HexLiteral <- Hex ("_"? Hex)*
+OctLiteral <- Oct ("_"? Dec)*
+BinLiteral <- Bin ("_"? Bin)*
 
 Dec <- [0-9]
 Hex <- [0-9a-fA-F]
 Oct <- [0-7]
 Bin <- [01]
+
+RuneLiteral <- "\'" Rune "\'"
+
+Rune <- Any of:
+	[^'\]
+	EscapeSequence
 
 StringLiteral <- "\"" StringChars "\""
 
@@ -103,6 +112,14 @@ StringValidChar <- Any of:
 EscapeSequence <- Exactly:
 	"\" [nrt\'"]
 	"\x" Hex Hex
+	"\u" Hex Hex Hex Hex
+	"\U" Hex Hex Hex Hex Hex Hex Hex
+
+ArrayLiteral <- "[" ArrayMember? "]"
+
+ArrayMember <-
+	Expr ","?
+	Expr "," ArrayMember
 
 
 # Expressions

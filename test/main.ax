@@ -9,7 +9,9 @@ pub fn main() -> void {
 	const foo: i32 = 0x2;
 	const bar := 1.0e-1; // Type: f64; Scientific notation can be used
 	mut oxy: u32; // Default initializes to zero
-	const chr: u8 = '\x1b';
+
+	const chr: rune = '\x40';
+	const str: []rune = "Hi ハイ"; // All strings are arrays
 
 	// All modules symbols are imported on usage
 	if (foo == 0) {
@@ -18,7 +20,7 @@ pub fn main() -> void {
 
 	// The for loop is write like C:
 	// 	for (binding; condition; after) { }
-	// although, you can omit the 'initial', and 'post' fields:
+	// although, you can omit the 'binding' and 'post' fields:
 	// 	for (condition) { }
 	// The "while" doesn't exists, you can use the "for" instead.
 	for (mut i = 0; i <= 10; i += 1) { // There's no prefix or postfix inc/decrement
