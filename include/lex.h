@@ -23,6 +23,7 @@ typedef enum TokenKind {
 	TK_MUT,
 	TK_PACKAGE,
 	TK_PUB,
+	TK_RUNE,
 	TK_TRUE,
 	TK_U16,
 	TK_U32,
@@ -79,10 +80,8 @@ typedef enum TokenKind {
 	TK_LAST_OPERATOR = TK_STAR_EQ,
 
 	// Data
-	TK_FLOAT,
 	TK_IDENTIFIER,
-	TK_INTEGER,
-	TK_STRING,
+	TK_CCONST, // Compile-time Constant
 
 	// Misc.
 	TK_NONE,
@@ -97,13 +96,15 @@ typedef struct Location {
 typedef struct Token {
 	TokenKind kind;
 	Location loc;
+	TypeStorage storage;
 
 	// Data
 	union {
 		char *ident; // Identifier name
-		f64 fval;
-		u64 uval;
 		i64 ival;
+		u64 uval;
+		f64 fval;
+		u32 rune;
 
 		struct {
 			usize len;
@@ -116,7 +117,7 @@ typedef struct LexState {
 	FILE *file;
 	Location loc;
 
-	char stack[2];
+	u32 stack[2];
 	usize buflen;
 	usize bufsize;
 	char *buf;

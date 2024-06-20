@@ -23,6 +23,7 @@ target_sources(
 	PRIVATE
 		src/lex.c
 		src/main.c
+		src/utf8.c
 		src/util.c
 )
 
@@ -34,6 +35,8 @@ target_sources(
 	BASE_DIRS ${CMAKE_SOURCE_DIR}/include
 	FILES
 		include/lex.h
+		include/types.h
+		include/utf8.h
 		include/util.h
 )
 

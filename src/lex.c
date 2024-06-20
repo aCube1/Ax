@@ -3,6 +3,7 @@
 
 #include "lex.h"
 
+#include "utf8.h"
 #include "util.h"
 
 #include <assert.h>
@@ -11,8 +12,6 @@
 #include <inttypes.h>
 #include <stdarg.h>
 #include <string.h>
-
-#define CEOF '\0'
 
 static const char *tokens[] = {
 	// Keywords (Must be sorted)
@@ -32,6 +31,7 @@ static const char *tokens[] = {
 	[TK_MUT] = "mut",
 	[TK_PACKAGE] = "package",
 	[TK_PUB] = "pub",
+	[TK_RUNE] = "rune",
 	[TK_TRUE] = "true",
 	[TK_U16] = "u16",
 	[TK_U32] = "u32",
@@ -104,14 +104,14 @@ static _Noreturn void push_error(Location loc, const char *fmt, ...) {
 	exit(EXIT_FAILURE);
 }
 
-static void buffer_insert(LexState *lex, const char *s, usize len) {
-	if (lex->buflen + len >= lex->bufsize) {
+static void buffer_insert(LexState *lex, const char *s, usize size) {
+	if (lex->buflen + size >= lex->bufsize) {
 		lex->bufsize *= 2;
 		lex->buf = xrealloc(lex->buf, lex->bufsize);
 	}
 
-	memcpy(lex->buf + lex->buflen, s, len);
-	lex->buflen += len;
+	memcpy(lex->buf + lex->buflen, s, size);
+	lex->buflen += size;
 	lex->buf[lex->buflen] = '\0';
 }
 
@@ -120,8 +120,8 @@ static void buffer_clear(LexState *lex) {
 	lex->buf[0] = '\0';
 }
 
-static void stack_push(LexState *lex, char c, bool frombuf) {
-	assert(lex->stack[1] == CEOF);
+static void stack_push(LexState *lex, u32 c, bool frombuf) {
+	assert(lex->stack[1] == UTF8_INVALID);
 
 	lex->stack[1] = lex->stack[0];
 	lex->stack[0] = c;
@@ -132,7 +132,7 @@ static void stack_push(LexState *lex, char c, bool frombuf) {
 	}
 }
 
-static void update_line(Location *loc, char c) {
+static void update_line(Location *loc, u32 c) {
 	if (c == '\n') { // Update line number and reset column
 		loc->lineno += 1;
 		loc->colno = 0;
@@ -143,45 +143,49 @@ static void update_line(Location *loc, char c) {
 	}
 }
 
-static char nextchr(LexState *lex, Location *loc, bool buffer) {
-	char c;
+static u32 nextchr(LexState *lex, Location *loc, bool buffer) {
+	u32 c;
 
-	if (lex->stack[0] != CEOF) {
+	if (lex->stack[0] != UTF8_INVALID) {
 		c = lex->stack[0];
 		lex->stack[0] = lex->stack[1];
-		lex->stack[1] = CEOF;
+		lex->stack[1] = UTF8_INVALID;
 	} else {
-		c = (char)fgetc(lex->file);
+		c = u8_get(lex->file);
 		update_line(&lex->loc, c);
 
-		if (feof(lex->file)) {
-			c = CEOF;
+		if (c == UTF8_INVALID && !feof(lex->file)) {
+			push_error(*loc, "Invalid UTF-8 sequence found");
+		}
+
+		if (c == UTF8_INVALID) {
+			log_trace("%c", c);
 		}
 	}
 
 	if (loc != NULL) {
 		*loc = lex->loc;
-		for (usize i = 0; i < 2 && lex->stack[i] != CEOF; i += 1) {
+		for (usize i = 0; i < 2 && lex->stack[i] != UTF8_INVALID; i += 1) {
 			update_line(&lex->loc, lex->stack[i]);
 		}
 	}
 
 	// Check if we need to store the character in the buffer
-	if (buffer) {
-		buffer_insert(lex, &c, 1);
+	if (buffer && c != '\0') {
+		buffer_insert(lex, (char *)&c, 1);
 	}
 
 	return c;
 }
 
-static inline bool is_space(char c) {
+static inline bool is_space(u32 c) {
 	return c == ' ' || c == '\t' || c == '\n';
 }
 
-static char trimspaces(LexState *lex, Location *loc) {
-	char c = ' ';
+static u32 trimspaces(LexState *lex, Location *loc) {
+	u32 c = ' ';
 
-	while (c != CEOF && is_space(c)) {
+	while (c != UTF8_EOF && is_space(c)) {
 		c = nextchr(lex, loc, false);
 	}
 
@@ -224,8 +228,8 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 		['_'] = { B_BIN, B_OCT, B_HEX, B_DEC, B_DEC | F_FLT, B_HEX | F_FLT, 0 },
 	};
 
-	char c = nextchr(lex, &out->loc, true);
-	assert(c != CEOF && isdigit(c));
+	u32 c = nextchr(lex, &out->loc, true);
+	assert(c != UTF8_EOF && c <= 0x7f && isdigit(c));
 
 	enum Base state = B_DEC;
 	u8 base = 10;
@@ -252,9 +256,9 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 	}
 
 	usize exp_idx = 0; // Index in buffer where the exponent start
-	while (c != CEOF) {
+	while (c != UTF8_EOF) {
 		// Check if it a valid number in current base
-		if (strchr(numbers[state & B_MASK], c) != NULL) {
+		if (strchr(numbers[state & B_MASK], (i32)c) != NULL) {
 			state &= ~(F_SYM | F_SEP);
 			c = nextchr(lex, NULL, true);
 			continue;
@@ -262,7 +266,7 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 
 		if ((state & F_SEP) > 0) {
 			// The current state is a separator, but didn't found a digit after it
-			push_error(out->loc, "Expected digit, found: %c", c);
+			push_error(out->loc, "Expected digit, found: '%c'", c);
 		}
 
 		if (strchr(valid_states[(u8)c], state) == NULL) {
@@ -299,14 +303,16 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 		c = nextchr(lex, NULL, true);
 	}
 
-	if (c != CEOF) {
+	if (c != UTF8_EOF) {
 		stack_push(lex, c, true);
 	}
+
+	out->kind = TK_CCONST;
 
 	errno = 0;
 	if ((state & F_FLT) > 0) {
 		out->fval = strtod(lex->buf, NULL);
-		out->kind = TK_FLOAT;
+		out->storage = TYPE_FLOAT;
 	} else {
 		u64 exp = 0;
 		if (exp_idx != 0) {
@@ -314,7 +320,7 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 		}
 
 		out->uval = strtoumax(lex->buf + (base == 10 ? 0 : 2), NULL, base);
-		out->kind = TK_INTEGER;
+		out->storage = TYPE_INT;
 
 		if (out->uval != 0) {
 			// Compute exponent if the value is not 0
@@ -328,6 +334,11 @@ static TokenKind lex_number(LexState *lex, Token *out) {
 					out->uval = INT64_MAX;
 				}
 			}
+		}
+
+		// Try to find the storage size
+		if (out->uval > (u64)INT64_MAX) {
+			out->storage = TYPE_U64;
 		}
 	}
 
@@ -344,11 +355,11 @@ static int keyword_cmp(const void *v1, const void *v2) {
 }
 
 static TokenKind lex_identifier(LexState *lex, Token *out) {
-	char c = nextchr(lex, &out->loc, true);
-	assert(c != CEOF && (isalpha(c) || c == '_'));
+	u32 c = nextchr(lex, &out->loc, true);
+	assert(c != UTF8_EOF && c <= 0x7f && (isalpha(c) || c == '_'));
 
-	while (c != CEOF) {
-		if (!isalnum(c) && c != '_') {
+	while (c != UTF8_EOF) {
+		if (c > 0x7f || (!isalnum(c) && c != '_')) {
 			// We found a invalid identifier symbol
 			stack_push(lex, c, true);
 			break;
@@ -378,73 +389,107 @@ static TokenKind lex_identifier(LexState *lex, Token *out) {
 	return out->kind;
 }
 
-static char lex_character(LexState *lex) {
-	char c = nextchr(lex, NULL, false);
-	assert(c != CEOF);
+static usize lex_rune(LexState *lex, char *out) {
+	u32 c = nextchr(lex, NULL, false);
+	assert(c != UTF8_EOF);
 
 	// Parse the escape characters
 	if (c == '\\') {
 		Location loc = lex->loc;
-		char buf[4] = { 0 };
+		char buf[9] = { 0 };
 		char *endptr = NULL;
 
 		c = nextchr(lex, NULL, false);
 
 		switch (c) {
 		case 'n':
-			return '\n';
+			out[0] = '\n';
+			return 1;
 		case 'r':
-			return '\r';
+			out[0] = '\r';
+			return 1;
 		case 't':
-			return '\t';
+			out[0] = '\t';
+			return 1;
 		case '\\':
-			return '\\';
+			out[0] = '\\';
+			return 1;
 		case '\'':
-			return '\'';
+			out[0] = '\'';
+			return 1;
 		case '"':
-			return '"';
+			out[0] = '\"';
+			return 1;
 		case '0':
-			return '\0';
+			out[0] = '\0';
+			return 1;
 		case 'x':
-			buf[0] = nextchr(lex, NULL, false);
-			buf[1] = nextchr(lex, NULL, false);
+			buf[0] = (char)nextchr(lex, NULL, false);
+			buf[1] = (char)nextchr(lex, NULL, false);
+			buf[2] = '\0';
 
-			// Convert hex sequence
-			c = (char)strtoul(buf, &endptr, 16);
+			c = strtoul(buf, &endptr, 16);
 			if (*endptr != '\0') {
 				push_error(loc, "Invalid hex escape sequence");
 			}
-			return c;
-		case CEOF:
+
+			out[0] = (char)c;
+			return 1;
+		case 'u':
+			for (u32 i = 0; i < 4; i += 1) {
+				buf[i] = (char)nextchr(lex, NULL, false);
+			}
+			buf[4] = '\0';
+
+			c = strtoul(buf, &endptr, 16);
+			if (*endptr != '\0') {
+				push_error(loc, "Invalid hex escape sequence");
+			}
+
+			return u8_encode(out, c);
+		case 'U':
+			for (u32 i = 0; i < 8; i += 1) {
+				buf[i] = (char)nextchr(lex, NULL, false);
+			}
+			buf[8] = '\0';
+
+			c = strtoul(out, &endptr, 16);
+			if (*endptr != '\0') {
+				push_error(loc, "Invalid hex escape sequence");
+			}
+
+			return u8_encode(buf, c);
+		case UTF8_EOF:
 			push_error(lex->loc, "Unexpected end of file");
 		default:
 			push_error(loc, "Invalid escape sequence '\\%c'", c);
 		}
 	}
 
-	return c;
+	return u8_encode(out, c);
 }
 
 static TokenKind lex_string(LexState *lex, Token *out) {
-	char c = nextchr(lex, &out->loc, false);
-	assert(c != CEOF);
+	u32 c = nextchr(lex, &out->loc, false);
+	char buf[UTF8_MAXBYTES + 1] = { 0 };
 
 	switch (c) {
 	case '"':
 		c = nextchr(lex, NULL, false);
 		while (c != '"') {
-			if (c == CEOF) {
+			if (c == UTF8_EOF) {
 				push_error(out->loc, "Unexpected end of file");
 			}
 
 			stack_push(lex, c, false);
-			char chr = lex_character(lex);
-			buffer_insert(lex, &chr, 1);
+			usize size = lex_rune(lex, buf);
+			buffer_insert(lex, buf, size);
 
 			c = nextchr(lex, NULL, false);
 		}
 
-		out->kind = TK_STRING;
+		out->kind = TK_CCONST;
+		out->storage = TYPE_STRING;
 		out->str.len = lex->buflen;
 		out->str.ptr = xstrndup(lex->buf, lex->buflen);
 
@@ -458,16 +503,18 @@ static TokenKind lex_string(LexState *lex, Token *out) {
 		}
 
 		stack_push(lex, c, false);
-		char chr = lex_character(lex);
+		usize size = lex_rune(lex, buf);
+		buf[size] = '\0';
 
-		out->kind = TK_INTEGER;
-		out->uval = (u64)chr;
+		u8_decode(buf, &out->rune);
 
 		c = nextchr(lex, NULL, false);
 		if (c != '\'') {
 			push_error(out->loc, "Expected closing single-quote");
 		}
 
+		out->kind = TK_CCONST;
+		out->storage = TYPE_RUNE;
 		break;
 	default:
 		assert(0); // UNREACHABLE
@@ -477,8 +524,8 @@ static TokenKind lex_string(LexState *lex, Token *out) {
 }
 
 static TokenKind lex_duo_operator(LexState *lex, Token *out) {
-	char c = nextchr(lex, &out->loc, false);
-	assert(c != CEOF);
+	u32 c = nextchr(lex, &out->loc, false);
+	assert(c != UTF8_EOF);
 
 	switch (c) {
 	case '=':
@@ -555,7 +602,6 @@ static TokenKind lex_duo_operator(LexState *lex, Token *out) {
 			out->kind = TK_MINUS;
 		}
 		break;
-
 	case '&':
 		c = nextchr(lex, NULL, false);
 		if (c == '&') {
@@ -581,7 +627,7 @@ static TokenKind lex_duo_operator(LexState *lex, Token *out) {
 	case '/':
 		c = nextchr(lex, NULL, false);
 		if (c == '/') {
-			while (c != CEOF && c != '\n') {
+			while (c != UTF8_EOF && c != '\n') {
 				c = nextchr(lex, NULL, false);
 			}
 			out->kind = lex_scan(lex, out); // Search for a valid token
@@ -600,8 +646,8 @@ static TokenKind lex_duo_operator(LexState *lex, Token *out) {
 }
 
 static TokenKind lex_tri_operator(LexState *lex, Token *out) {
-	char c = nextchr(lex, &out->loc, false);
-	assert(c != CEOF);
+	u32 c = nextchr(lex, &out->loc, false);
+	assert(c != UTF8_EOF);
 
 	// TODO: Improve 3 characters operator parsing
 	switch (c) {
@@ -651,6 +697,9 @@ void lex_init(LexState *lex, FILE *file) {
 
 	lex->bufsize = 128;
 	lex->buf = xcalloc(1, lex->bufsize * sizeof(char));
+
+	lex->stack[0] = UTF8_INVALID;
+	lex->stack[1] = UTF8_INVALID;
 }
 
 void lex_close(LexState *lex) {
@@ -659,20 +708,23 @@ void lex_close(LexState *lex) {
 }
 
 TokenKind lex_scan(LexState *lex, Token *tok) {
-	char c = trimspaces(lex, &tok->loc);
-	if (c == CEOF) { // Check if we reached the end-of-file
+	u32 c = trimspaces(lex, &tok->loc);
+	if (c == UTF8_EOF) { // Check if we reached the end-of-file
 		tok->kind = TK_EOF;
 		return tok->kind;
 	}
 
-	if (isdigit(c)) {
-		stack_push(lex, c, false);
-		return lex_number(lex, tok);
-	}
+	// We only scan ASCII characters for identifiers and digits
+	if (c <= 0x7f) {
+		if (isdigit(c)) {
+			stack_push(lex, c, false);
+			return lex_number(lex, tok);
+		}
 
-	if (isalpha(c) || c == '_') {
-		stack_push(lex, c, false);
-		return lex_identifier(lex, tok);
+		if (isalpha(c) || c == '_') {
+			stack_push(lex, c, false);
+			return lex_identifier(lex, tok);
+		}
 	}
 
 	switch (c) {

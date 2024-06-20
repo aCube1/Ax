@@ -1,4 +1,5 @@
 #include "lex.h"
+#include "utf8.h"
 #include "util.h"
 
 #include <stdio.h>
@@ -27,32 +28,39 @@ int main(int argc, char *argv[]) {
 
 	Token tok = { 0 };
 	while (lex_scan(&lex, &tok) != TK_EOF) {
-		switch (tok.kind) {
-		case TK_FLOAT:
-			log_debug("%d:%d -> %f", tok.loc.lineno, tok.loc.colno, tok.fval);
-			break;
-		case TK_INTEGER:
-			log_debug("%d:%d -> %d", tok.loc.lineno, tok.loc.colno, tok.uval);
-			break;
-		case TK_IDENTIFIER:
-			if (tok.ident != NULL) {
-				log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.ident);
-				free(tok.ident);
-				tok.ident = NULL;
-			}
-			break;
-		case TK_STRING:
-			if (tok.str.ptr != NULL) {
-				log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.str.ptr);
-				free(tok.str.ptr);
-				tok.str.ptr = NULL;
-			}
-			break;
-		default:
+		if (tok.kind <= TK_LAST_OPERATOR) {
 			log_debug(
 				"%d:%d -> %s", tok.loc.lineno, tok.loc.colno, lex_tok2str(tok.kind)
 			);
-			break;
+		}
+
+		if (tok.kind == TK_IDENTIFIER && tok.ident != NULL) {
+			log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.ident);
+			free(tok.ident);
+			tok.ident = NULL;
+		}
+
+		if (tok.kind == TK_CCONST) {
+			switch (tok.storage) {
+			case TYPE_FLOAT:
+				log_debug("%d:%d -> %f", tok.loc.lineno, tok.loc.colno, tok.fval);
+				break;
+			case TYPE_INT:
+				log_debug("%d:%d -> %d", tok.loc.lineno, tok.loc.colno, tok.uval);
+				break;
+			case TYPE_STRING:
+				if (tok.str.ptr != NULL) {
+					log_debug("%d:%d -> %s", tok.loc.lineno, tok.loc.colno, tok.str.ptr);
+					free(tok.str.ptr);
+					tok.str.ptr = NULL;
+				}
+				break;
+			case TYPE_RUNE:
+				log_debug("%d:%d -> %c", tok.loc.lineno, tok.loc.colno, tok.rune);
+				break;
+			default:
+				break;
+			}
 		}
 	}
 
